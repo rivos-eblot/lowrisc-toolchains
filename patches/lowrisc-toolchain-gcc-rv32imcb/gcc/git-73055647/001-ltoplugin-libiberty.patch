@@ -1,0 +1,13 @@
+diff --git a/lto-plugin/Makefile.in b/lto-plugin/Makefile.in
+index 7da7cd26dbf..8ab997e17c3 100644
+--- a/lto-plugin/Makefile.in
++++ b/lto-plugin/Makefile.in
+@@ -337,7 +337,7 @@ target_vendor = @target_vendor@
+ top_build_prefix = @top_build_prefix@
+ top_builddir = @top_builddir@
+ top_srcdir = @top_srcdir@
+-with_libiberty = @with_libiberty@
++with_libiberty = @abs_builddir@/@with_libiberty@
+ ACLOCAL_AMFLAGS = -I .. -I ../config
+ AUTOMAKE_OPTIONS = no-dependencies
+ gcc_version := $(shell @get_gcc_base_ver@ $(top_srcdir)/../gcc/BASE-VER)
