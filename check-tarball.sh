@@ -28,7 +28,7 @@ echo "Checking: $1"
 
 # Extract tarball into `tarball_dest`
 echo "Extracting:"
-tar -x -v \
+gtar -x -v \
   -f "${tarball}" \
   --strip-components=1 \
   -C "${tarball_dest}"

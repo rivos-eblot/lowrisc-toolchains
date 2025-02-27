@@ -22,7 +22,7 @@ toolchain_full_name="$1"
 toolchain_dest="$2"
 artifact_dir="${3:-.}"
 
-tar -cJ \
+gtar -cJ \
   --show-transformed-names --verbose \
   --directory="$(dirname "${toolchain_dest}")" \
   -f "${artifact_dir}/$toolchain_full_name.tar.xz" \
