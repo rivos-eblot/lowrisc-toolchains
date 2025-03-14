@@ -22,5 +22,5 @@ if [[ "$GITHUB_REF_TYPE" == tag ]]; then
   echo "$GITHUB_REF_NAME"
 else
   # Branch Build: Always use '<TAG>-<N>-<SHA>' format.
-  git describe --long
+  git describe --long --always
 fi

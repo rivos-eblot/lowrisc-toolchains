@@ -1,9 +1,10 @@
 name: Build toolchains
 
 on:
+  workflow_dispatch:
   push:
     branches:
-      - master
+      - dev/ebl/macos_aarch64
     tags:
       - "*"
   pull_request:
@@ -11,7 +12,7 @@ on:
       - master
 
 env:
-  ARTIFACT_STAGING_DIR: artifact
+  ARTIFACT_STAGING_DIR: /Volumes/CaseInsensitive/artifact
 
 jobs:
   build:
@@ -19,77 +20,84 @@ jobs:
       matrix:
         include:
           - name: rv32imcb
-            display_name: Toolchains targeting Ibex with bit-manipulation extensions
+            display_name: macOS toolchains (Ibex with bit-manip)
             target: riscv32-unknown-elf
-            output_dir: /tools/riscv
+            # all bash shell scripts fail if this path is not absolute
+            output_dir: /Volumes/CaseInsensitive/cifs/toolchain
             march: rv32imc_zba_zbb_zbc_zbs
             mabi: ilp32
             mcmodel: medany
-          - name: rv64imac
-            display_name: GCC and Clang/LLVM toolchains targeting RV64IMAC (Muntjac)
-            target: riscv64-unknown-elf
-            output_dir: /tools/riscv
-            march: rv64imac
-            mabi: lp64
-            mcmodel: medany
-#         - name: multilib-baremetal
-#           display_name: RV64 GCC (Multilib Baremetal)
-#           target: riscv64-unknown-elf
-#           output_dir: /opt/riscv-baremetal-toolchain
-#         - name: multilib-linux
-#           display_name: RV64 GCC (Multilib Linux)
-#           target: riscv64-unknown-linux-gnu
-#           output_dir: /opt/riscv-linux-toolchain
 
     name: ${{ matrix.display_name }}
-    runs-on: ubuntu-latest
-    # This is an AlmaLinux 8 based image
-    container: quay.io/pypa/manylinux_2_28_x86_64
+    runs-on: macos-latest
     timeout-minutes: 360
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Set up Homebrew
+        id: set-up-homebrew
+        uses: Homebrew/actions/setup-homebrew@master
 
       - name: Setup environment
+        id: set-up-env
         run: |
           echo ::group::Install dependencies
-          ./prepare-host.sh
+          brew install --quiet \
+              bison cmake crosstool-ng flex gcc gnu-tar libelf llvm make ncurses pkg-config wget
           echo ::endgroup::
 
-          echo ::group::Install crosstool-ng
-          ./install-crosstool-ng.sh
+          echo ::group::Create case sensitive file system
+          # although not necessary for non-Linux toolchain, crosstool-ng enforces this kind of FS,
+          # which is not the default on macOS platforms. Create a temporary sparse volume
+          hdiutil create -size 40g -fs "Case-sensitive APFS" -type SPARSE -volname CaseInsensitive CaseInsensitive
+          hdiutil mount CaseInsensitive.sparseimage
+          mkdir /Volumes/CaseInsensitive/cifs
+          ln -s /Volumes/CaseInsensitive/cifs cifs
           echo ::endgroup::
 
-          echo Preparing toolchain destination directory...
-          sudo mkdir -p /tools/riscv
-          sudo chmod 0777 /tools/riscv
-
-          echo ::group::Set the release tag env var
-          echo "RELEASE_TAG=$(./release_tag.sh)" >> "$GITHUB_ENV"
-          echo ::endgroup::
-
+          # for some reason, artifact uses an environment variable rather than a script argument
           echo Creating artifact staging directory...
-          mkdir "$ARTIFACT_STAGING_DIR"
+          mkdir -p "${ARTIFACT_STAGING_DIR}"
+
+      - uses: actions/checkout@v4
+        with:
+          path: cifs
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Setup version
+        id: setup-up-version
+        run: |
+          echo ::group::Set the release tag env var
+          cd cifs
+          ./release_tag.sh
+          RELEASE_TAG="$(./release_tag.sh)"
+          echo "RELEASE_TAG=${RELEASE_TAG}" >> "$GITHUB_ENV"
+          echo "RELEASE_TAG=${RELEASE_TAG}"
+          echo ::endgroup::
 
       - name: Build GCC toolchain
+        id: build-gcc
         run: |
+          cd cifs
           ./build-gcc-with-args.sh \
             "lowrisc-toolchain-gcc-${{ matrix.name }}" \
             "${{ matrix.target }}" \
             "${{ matrix.output_dir }}" \
             "${{ matrix.march }}" \
-            "${{ matrix.mabi}}" \
+            "${{ matrix.mabi }}" \
             "${{ matrix.mcmodel }}" \
             "${{ matrix.cflags }}"
 
       - name: Build Clang toolchain
+        id: build-clang
         run: |
+          cd cifs
           ./build-clang-with-args.sh \
             "lowrisc-toolchain-${{ matrix.name }}" \
             "${{ matrix.target }}" \
             "${{ matrix.output_dir }}" \
             "${{ matrix.march }}" \
-            "${{ matrix.mabi}}" \
+            "${{ matrix.mabi }}" \
             "${{ matrix.mcmodel }}" \
             "${{ matrix.cflags }}"
 
@@ -101,6 +109,7 @@ jobs:
       - name: Check tarballs
         run: |
           set -e
+          cd cifs
           for f in "${ARTIFACT_STAGING_DIR}"/*.tar.xz; do
             ./check-tarball.sh "$f"
           done
@@ -110,12 +119,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          cd cifs
           # Git warns about this repo having dubious ownership - ignore.
           git config --global --add safe.directory /__w/lowrisc-toolchains/lowrisc-toolchains
 
           # Create the release if it doesn't already exist.
           gh release create "$RELEASE_TAG" --prerelease || echo "release exists"
           # Upload this job's artifacts.
+          TOOLCHAIN_HOST="$(uname -sm | tr 'A-Z ' 'a-z-')"
           gh release upload "$RELEASE_TAG" --clobber \
-            "${ARTIFACT_STAGING_DIR}/lowrisc-toolchain-${{ matrix.name }}-${RELEASE_TAG}.tar.xz" \
-            "${ARTIFACT_STAGING_DIR}/lowrisc-toolchain-gcc-${{ matrix.name }}-${RELEASE_TAG}.tar.xz"
+            "${ARTIFACT_STAGING_DIR}/lowrisc-toolchain-${{ matrix.name }}-${TOOLCHAIN_HOST}-${RELEASE_TAG}.tar.xz" \
+            "${ARTIFACT_STAGING_DIR}/lowrisc-toolchain-gcc-${{ matrix.name }}-${TOOLCHAIN_HOST}-${RELEASE_TAG}.tar.xz"
+
+      - name: Cleanup
+        run: |
+          hdiutil unmount /Volumes/CaseInsensitive

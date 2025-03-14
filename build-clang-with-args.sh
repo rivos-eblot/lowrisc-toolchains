@@ -48,8 +48,10 @@ build_top_dir="${PWD}"
 # shellcheck source=sw-versions.sh
 source "${build_top_dir}/sw-versions.sh"
 
-tag_name="${RELEASE_TAG:-HEAD}"
-toolchain_full_name="${toolchain_name}-${tag_name}"
+git_ver="$(git rev-parse --short HEAD)"
+tag_name="${RELEASE_TAG:-${git_ver}}"
+toolchain_host="$(uname -sm | tr 'A-Z ' 'a-z-')"
+toolchain_full_name="${toolchain_name}-${toolchain_host}-${tag_name}"
 
 mkdir -p "${build_top_dir}/build"
 cd "${build_top_dir}/build"

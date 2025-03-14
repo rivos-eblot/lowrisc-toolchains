@@ -44,13 +44,19 @@ build_top_dir="${PWD}"
 # shellcheck source=sw-versions.sh
 source "${build_top_dir}/sw-versions.sh"
 
-tag_name="${RELEASE_TAG:-HEAD}"
-toolchain_full_name="${toolchain_name}-${tag_name}"
+git_ver="$(git rev-parse --short HEAD)"
+tag_name="${RELEASE_TAG:-${git_ver}}"
+toolchain_host="$(uname -sm | tr 'A-Z ' 'a-z-')"
+toolchain_full_name="${toolchain_name}-${toolchain_host}-${tag_name}"
 
-# crosstools-NG needs the ability to create and chmod the
-# $toolchain_dest directory.
-sudo mkdir -p "$(dirname "${toolchain_dest}")"
-sudo chmod 777 "$(dirname "${toolchain_dest}")"
+host_type="$(uname -s)"
+
+if [ "${host_type}" != "Darwin" ]; then
+    # crosstools-NG needs the ability to create and chmod the
+    # $toolchain_dest directory.
+    sudo mkdir -p "$(dirname "${toolchain_dest}")"
+    sudo chmod 777 "$(dirname "${toolchain_dest}")"
+fi
 
 mkdir -p "${toolchain_dest}"
 
@@ -69,7 +75,21 @@ cd "${build_top_dir}/build/gcc"
   echo "# END ADDED BY ${0}"
 } > .config
 ct-ng upgradeconfig
-cat .config
+
+if [ "${host_type}" = "Darwin" ]; then
+    # for some reason, ct-ng upgradeconfig likes to get rid of CT_BUILD_ variables
+    DARWIN_VER=$(uname -r | cut -d. -f1)
+    GCC_PREFIX="/opt/homebrew/opt/gcc/bin/aarch64-apple-darwin${DARWIN_VER}"
+    GCC_SUFFIX="$(ls -1 ${GCC_PREFIX}-c++-* | cut -d- -f5)"
+    sed -i '' \
+        -e "s%CT_BUILD_PREFIX=.*%CT_BUILD_PREFIX=\\\"${GCC_PREFIX}-\\\"%" \
+        -e "s%CT_BUILD_SUFFIX=.*%CT_BUILD_SUFFIX=\\\"-${GCC_SUFFIX}\\\"%" \
+        .config
+    grep CT_BUILD_PREFIX .config
+    grep CT_BUILD_SUFFIX .config
+else
+    cat .config
+fi
 
 # crosstool-ng doesn't work with some environment variables set, leading to
 # errors like "Don't set LD_LIBRARY_PATH. It screws up the build." otherwise.
@@ -106,7 +126,7 @@ ls -l "${toolchain_dest}"
 
 # Write out build info
 set +o pipefail # head causes pipe failures, so we have to switch off pipefail while we use it.
-ct_ng_version_string="$(ct-ng version | head -n1)"
+ct_ng_version_string="$(ct-ng version | head -n1 | true)"
 gcc_version_string="$("${toolchain_dest}/bin/${toolchain_target}-gcc" --version | head -n1)"
 build_date="$(date -u)"
 set -o pipefail
